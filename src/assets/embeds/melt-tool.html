@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spectral Liquid Melt</title>
+  
+  <style>
+
+
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .tool-canvas-area {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    canvas { display: block; background: transparent; }
+@import url('https://fonts.googleapis.com/css2?family=Anton&display=swap');
+  </style>
+</head>
+<body>
+  <div class="tool-canvas-area">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script>
+
+    // Mobile perf: cap devicePixelRatio so canvases allocate fewer pixels.
+    (function() {
+      var _isMobile = window.innerWidth <= 768;
+      if (_isMobile) {
+        var _nativeDPR = window.devicePixelRatio || 1;
+        var _cappedDPR = Math.min(1.5, _nativeDPR);
+        Object.defineProperty(window, 'devicePixelRatio', { get: function() { return _cappedDPR; } });
+      }
+    })();
+
+    window.CanvasRuntimeAPI = (function() {
+      var _exportMode = 'auto';
+      var _exportWidth = 0;
+      var _exportHeight = 0;
+      var _bgState = { mode: 'none', color: '#ffffff', imageEl: null, imageDataURL: null, fit: 'cover' };
+
+
+
+      var _canvas = document.getElementById('canvas');
+      var _area = _canvas ? _canvas.parentElement : document.querySelector('.tool-canvas-area');
+      var _resizeRAF = null;
+
+      function _detectCanvas() {
+        var r = window.renderer || window.threeRenderer;
+        if (r && r.domElement) {
+          _canvas = r.domElement;
+          _area = _canvas.parentElement;
+          return;
+        }
+        var area = document.querySelector('.tool-canvas-area');
+        if (area) {
+          var canvases = area.querySelectorAll('canvas');
+          var visible = [];
+          for (var j = 0; j < canvases.length; j++) {
+            if (canvases[j].style.display !== 'none') visible.push(canvases[j]);
+          }
+          if (visible.length >= 1) {
+            var largest = visible[0];
+            for (var i = 1; i < visible.length; i++) {
+              if (visible[i].width * visible[i].height > largest.width * largest.height) {
+                largest = visible[i];
+              }
+            }
+            _canvas = largest;
+            _area = _canvas.parentElement;
+          }
+        }
+      }
+
+
+
+
+      function _applyBgCSS() {
+        _detectCanvas();
+        if (!_canvas) return;
+        if (_bgState.mode === 'none') {
+          _canvas.style.background = '';
+        } else if (_bgState.mode === 'solid') {
+          _canvas.style.background = _bgState.color;
+        } else if (_bgState.mode === 'image') {
+          if (_bgState.imageDataURL) {
+            var fitCss = _bgState.fit === 'fill' ? '100% 100%' : _bgState.fit;
+            _canvas.style.backgroundColor = _bgState.color;
+            _canvas.style.backgroundImage = 'url("' + _bgState.imageDataURL + '")';
+            _canvas.style.backgroundSize = fitCss;
+            _canvas.style.backgroundPosition = 'center';
+            _canvas.style.backgroundRepeat = 'no-repeat';
+          } else {
+            _canvas.style.backgroundImage = '';
+            _canvas.style.backgroundColor = _bgState.color;
+          }
+        }
+      }
+
+      function setBackground(state) {
+        state = state || {};
+        _bgState.mode = state.mode || 'none';
+        _bgState.color = state.color || '#ffffff';
+        _bgState.fit = state.fit || 'cover';
+        if (state.image && state.image !== _bgState.imageDataURL) {
+          _bgState.imageDataURL = state.image;
+          _bgState.imageEl = null;
+          _applyBgCSS();
+          var img = new Image();
+          img.onload = function() {
+            if (_bgState.imageDataURL !== state.image) return;
+            _bgState.imageEl = img;
+          };
+          img.src = state.image;
+        } else if (!state.image) {
+          _bgState.imageEl = null;
+          _bgState.imageDataURL = null;
+        }
+        _applyBgCSS();
+      }
+
+      function getBackground() {
+        return { mode: _bgState.mode, color: _bgState.color, fit: _bgState.fit };
+      }
+
+      function setCanvas(el) {
+        _canvas = el;
+        _area = el ? el.parentElement : document.querySelector('.tool-canvas-area');
+        if (_bgState.mode !== 'none') _applyBgCSS();
+      }
+
+      function setExportDimensions(w, h) {
+        _detectCanvas();
+        _exportMode = 'fixed';
+        _exportWidth = Math.max(1, Math.round(w || 1));
+        _exportHeight = Math.max(1, Math.round(h || 1));
+        if (_canvas) {
+          _canvas.width = _exportWidth;
+          _canvas.height = _exportHeight;
+        }
+        if (window.p5 && typeof window.resizeCanvas === 'function') window.resizeCanvas(_exportWidth, _exportHeight);
+        if (window.renderer && window.renderer.setSize) window.renderer.setSize(_exportWidth, _exportHeight, false);
+        if (window.hydra && window.hydra.setResolution) window.hydra.setResolution(_exportWidth, _exportHeight);
+        window.dispatchEvent(new Event('resize'));
+      }
+
+      function fitToArea() {}
+
+      function getExportDimensions() {
+        if (_exportMode === 'fixed') return { width: _exportWidth, height: _exportHeight, mode: 'fixed' };
+        _detectCanvas();
+        return { width: _canvas ? _canvas.width : 0, height: _canvas ? _canvas.height : 0, mode: 'auto' };
+      }
+
+      function isFixedExportMode() { return _exportMode === 'fixed'; }
+
+      function _onAreaResize() {
+        var r = window.renderer || window.threeRenderer;
+        if (!r || !r.setSize) return;
+        if (_resizeRAF) cancelAnimationFrame(_resizeRAF);
+        _resizeRAF = requestAnimationFrame(function() {
+          _detectCanvas();
+          if (!_area) return;
+          var w = _area.clientWidth;
+          var h = _area.clientHeight;
+          if (w <= 0 || h <= 0) return;
+          r.setSize(w, h);
+          window.dispatchEvent(new Event('resize'));
+        });
+      }
+      if (typeof ResizeObserver !== 'undefined' && _area) {
+        new ResizeObserver(_onAreaResize).observe(_area);
+      }
+      window.addEventListener('resize', _onAreaResize);
+
+      setTimeout(function() {
+        _detectCanvas();
+        if (_bgState.mode !== 'none') _applyBgCSS();
+      }, 500);
+
+      function getMousePos(event) {
+        _detectCanvas();
+        if (!_canvas) return { x: 0, y: 0 };
+        var rect = _canvas.getBoundingClientRect();
+        var scaleX = _canvas.width / rect.width;
+        var scaleY = _canvas.height / rect.height;
+        var touch = event.touches && event.touches[0]
+          ? event.touches[0]
+          : event.changedTouches && event.changedTouches[0]
+          ? event.changedTouches[0]
+          : null;
+        var clientX = touch ? touch.clientX : event.clientX;
+        var clientY = touch ? touch.clientY : event.clientY;
+        return {
+          x: (clientX - rect.left) * scaleX,
+          y: (clientY - rect.top) * scaleY
+        };
+      }
+
+      function drawImage(ctx, img, x, y, w, h, fit) {
+        if (!img || !img.width || !img.height) return;
+        fit = fit || 'cover';
+        var ar = img.width / img.height;
+        var car = w / h;
+        var sx = 0, sy = 0, sw = img.width, sh = img.height;
+        var dx = x, dy = y, dw = w, dh = h;
+
+        if (fit === 'cover') {
+          if (ar > car) { sw = img.height * car; sx = (img.width - sw) / 2; }
+          else { sh = img.width / car; sy = (img.height - sh) / 2; }
+        } else if (fit === 'contain') {
+          if (ar > car) { dh = w / ar; dy = y + (h - dh) / 2; }
+          else { dw = h * ar; dx = x + (w - dw) / 2; }
+        }
+
+        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      }
+
+      return {
+        setCanvas: setCanvas,
+        setBackground: setBackground,
+        getBackground: getBackground,
+        setExportDimensions: setExportDimensions,
+        fitToArea: fitToArea,
+        getExportDimensions: getExportDimensions,
+        isFixedExportMode: isFixedExportMode,
+
+
+        getMousePos: getMousePos,
+        drawImage: drawImage
+      };
+    })();
+
+    window.ChatoolyCanvas = window.CanvasRuntimeAPI;
+    window.ChatoolyControls = window.ControlsAPI;
+
+    (function() {
+      var srcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+      if (srcDesc && srcDesc.set) {
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+          get: srcDesc.get,
+          set: function(val) {
+            if (val && typeof val === 'string' && !val.startsWith('data:') && !this.crossOrigin) {
+              this.crossOrigin = 'anonymous';
+            }
+            srcDesc.set.call(this, val);
+          },
+          configurable: true,
+          enumerable: true
+        });
+      }
+    })();
+
+    window.loadImage = function(src, callback) {
+      var img = new Image();
+      if (src && typeof src === 'string' && !src.startsWith('data:')) {
+        img.crossOrigin = 'anonymous';
+      }
+      img.onload = function() { if (callback) callback(img); };
+      img.onerror = function() { console.error('Failed to load image:', src); };
+      img.src = src;
+      return img;
+    };
+  
+  </script>
+  <script>
+    var canvas = document.getElementById('canvas');
+    var ctx = canvas.getContext('2d');
+    var __ctArea = canvas.parentElement;
+    var __maxDim = (window.innerWidth <= 768) ? 960 : 4096;
+
+    function resizeCanvas() {
+      var cs = getComputedStyle(__ctArea);
+      canvas.width = Math.min(__maxDim, __ctArea.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+      canvas.height = Math.min(__maxDim, __ctArea.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    var controls = (function() {
+      var _v = {"textContent":"MELT","font":{"family":"Anton","style":"normal","weight":400,"url":null},"textSize":280,"animate":true,"meltSpeed":3,"meltIntensity":81,"waveHeight":330,"waveWidth":43,"distortion":40,"gasolineIntensity":23,"chromatic":20.5,"glowIntensity":45,"blurIntensity":8,"grainIntensity":72,"vignetteIntensity":0,"posX":49,"posY":57};
+      var _defaults = JSON.parse(JSON.stringify(_v));
+      function _hexToRgb(hex) {
+        var h = String(hex || '').replace('#', '');
+        if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        if (h.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(h)) return null;
+        return {
+          r: parseInt(h.slice(0, 2), 16),
+          g: parseInt(h.slice(2, 4), 16),
+          b: parseInt(h.slice(4, 6), 16)
+        };
+      }
+      function _clamp(n, min, max) { return Math.min(max, Math.max(min, n)); }
+      function _hexToRgbaCss(hex, opacity0to100) {
+        var rgb = _hexToRgb(hex);
+        if (!rgb) return 'rgba(0,0,0,1)';
+        var op = opacity0to100 != null && !isNaN(Number(opacity0to100)) ? Number(opacity0to100) : 100;
+        var a = _clamp(op, 0, 100) / 100;
+        return 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + a + ')';
+      }
+      var api = {
+        get: function(k) { return _v[k]; },
+        getAll: function() { return Object.assign({}, _v); },
+        getDefaults: function() { return JSON.parse(JSON.stringify(_defaults)); },
+        getColorWithAlpha: function(baseKey) { return _hexToRgbaCss(_v[baseKey], _v[baseKey + '_opacity']); },
+        set: function(k, v) { _v[k] = v; },
+        onChange: function() {},
+        onAny: function() {},
+        onAction: function() {}
+      };
+      window.ControlsAPI = api;
+      window.ChatoolyControls = api;
+      return api;
+    })();
+
+    
+
+    // Creative Code
+    {
+      // @clay-no-bg-control
+// Melting Typography — Canvas 2D multi-layer pipeline
+// Noise-driven vertical displacement, iridescence, chromatic aberration, bloom, grain
+
+// --- Seeded noise (simplex 2D) ---
+const F2 = 0.5 * (Math.sqrt(3) - 1);
+const G2 = (3 - Math.sqrt(3)) / 6;
+const grad2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+const perm = new Uint8Array(512);
+const permMod8 = new Uint8Array(512);
+(function() {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  for (let i = 0; i < 512; i++) {
+    perm[i] = p[i & 255];
+    permMod8[i] = perm[i] % 8;
+  }
+})();
+
+function noise2D(x, y) {
+  const s = (x + y) * F2;
+  const i = Math.floor(x + s);
+  const j = Math.floor(y + s);
+  const t = (i + j) * G2;
+  const X0 = i - t, Y0 = j - t;
+  const x0 = x - X0, y0 = y - Y0;
+  const i1 = x0 > y0 ? 1 : 0;
+  const j1 = x0 > y0 ? 0 : 1;
+  const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
+  const x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+  const ii = i & 255, jj = j & 255;
+  let n0 = 0, n1 = 0, n2 = 0;
+  let t0 = 0.5 - x0*x0 - y0*y0;
+  if (t0 > 0) { t0 *= t0; const g = grad2[permMod8[ii + perm[jj]]]; n0 = t0 * t0 * (g[0]*x0 + g[1]*y0); }
+  let t1 = 0.5 - x1*x1 - y1*y1;
+  if (t1 > 0) { t1 *= t1; const g = grad2[permMod8[ii + i1 + perm[jj + j1]]]; n1 = t1 * t1 * (g[0]*x1 + g[1]*y1); }
+  let t2 = 0.5 - x2*x2 - y2*y2;
+  if (t2 > 0) { t2 *= t2; const g = grad2[permMod8[ii + 1 + perm[jj + 1]]]; n2 = t2 * t2 * (g[0]*x2 + g[1]*y2); }
+  return 70 * (n0 + n1 + n2);
+}
+
+function fbm(x, y, octaves) {
+  let v = 0, a = 0.5, fx = x, fy = y;
+  for (let i = 0; i < octaves; i++) {
+    v += a * noise2D(fx, fy);
+    fx *= 2; fy *= 2; fx += 100;
+    a *= 0.5;
+  }
+  return v;
+}
+
+// --- Iridescence color (thin-film gasoline) ---
+function iridescence(t) {
+  const h = ((t * 0.8 + 0.55) % 1 + 1) % 1;
+  let r, g, b;
+  if (h < 0.15) { const f = h / 0.15; r = 0.1 + f * (-0.1); g = f * 0.3; b = 0.4 + f * 0.4; }
+  else if (h < 0.3) { const f = (h - 0.15) / 0.15; r = f * 0; g = 0.3 + f * 0.5; b = 0.8 + f * 0.1; }
+  else if (h < 0.45) { const f = (h - 0.3) / 0.15; r = f * 0.2; g = 0.8 + f * 0.1; b = 0.9 - f * 0.6; }
+  else if (h < 0.6) { const f = (h - 0.45) / 0.15; r = 0.2 + f * 0.75; g = 0.9; b = 0.3 - f * 0.2; }
+  else if (h < 0.75) { const f = (h - 0.6) / 0.15; r = 0.95 + f * 0.05; g = 0.9 - f * 0.5; b = 0.1 - f * 0.1; }
+  else if (h < 0.9) { const f = (h - 0.75) / 0.15; r = 1.0 - f * 0.1; g = 0.4 - f * 0.3; b = f * 0.2; }
+  else { const f = (h - 0.9) / 0.1; r = 0.9 - f * 0.5; g = 0.1 - f * 0.1; b = 0.2 + f * 0.4; }
+  return [r || 0, g || 0, b || 0];
+}
+
+// --- Offscreen buffers ---
+const textCanvas = new OffscreenCanvas(1, 1);
+const textCtx = textCanvas.getContext('2d');
+const meltCanvas = new OffscreenCanvas(1, 1);
+const meltCtx = meltCanvas.getContext('2d');
+const bloomCanvas = new OffscreenCanvas(1, 1);
+const bloomCtx = bloomCanvas.getContext('2d');
+
+let textNeedsUpdate = true;
+let currentFont = 'Anton';
+let lastW = 0, lastH = 0;
+
+function ensureBuffers(w, h) {
+  if (w === lastW && h === lastH) return;
+  lastW = w; lastH = h;
+  textCanvas.width = w; textCanvas.height = h;
+  meltCanvas.width = w; meltCanvas.height = h;
+  bloomCanvas.width = Math.max(1, w >> 1);
+  bloomCanvas.height = Math.max(1, h >> 1);
+  textNeedsUpdate = true;
+}
+
+function renderText(w, h) {
+  textCtx.clearRect(0, 0, w, h);
+  const text = controls.get('textContent') || 'MELT';
+  const size = controls.get('textSize') || 280;
+  const fontData = controls.get('font');
+  const fontFamily = (fontData && fontData.family) ? fontData.family : 'Anton';
+  const fontWeight = (fontData && fontData.weight) ? fontData.weight : '400';
+
+  if (fontFamily !== currentFont) {
+    currentFont = fontFamily;
+    document.fonts.load(fontWeight + ' ' + size + 'px "' + fontFamily + '"').then(function() {
+      textNeedsUpdate = true;
+    });
+  }
+
+  const px = (controls.get('posX') || 50) / 100 * w;
+  const py = (controls.get('posY') || 38) / 100 * h;
+
+  textCtx.font = fontWeight + ' ' + size + 'px "' + fontFamily + '", "Anton", Impact, sans-serif';
+  textCtx.textAlign = 'center';
+  textCtx.textBaseline = 'middle';
+  textCtx.fillStyle = '#f0eee8';
+  textCtx.fillText(text, px, py);
+  textNeedsUpdate = false;
+}
+
+controls.onChange('textContent', function() { textNeedsUpdate = true; });
+controls.onChange('textSize', function() { textNeedsUpdate = true; });
+controls.onChange('font', function() { textNeedsUpdate = true; });
+controls.onChange('posX', function() { textNeedsUpdate = true; });
+controls.onChange('posY', function() { textNeedsUpdate = true; });
+
+// --- Hash for grain ---
+function hash(x, y) {
+  let h = (x * 374761393 + y * 668265263 + 1013904223) | 0;
+  h = ((h >> 13) ^ h) * 1274126177;
+  h = ((h >> 16) ^ h);
+  return (h & 0x7fffffff) / 0x7fffffff;
+}
+
+// --- Main render ---
+let time = 0;
+let lastTimestamp = 0;
+
+// Sampling step for performance — process every Nth pixel
+const STEP = 2;
+
+function render(timestamp) {
+  const dt = lastTimestamp ? Math.min((timestamp - lastTimestamp) * 0.001, 0.05) : 0.016;
+  lastTimestamp = timestamp;
+
+  if (controls.get('animate')) {
+    time += dt;
+  }
+
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w < 1 || h < 1) { requestAnimationFrame(render); return; }
+
+  ensureBuffers(w, h);
+  if (textNeedsUpdate) renderText(w, h);
+
+  // Read text pixels
+  const textData = textCtx.getImageData(0, 0, w, h);
+  const textPx = textData.data;
+
+  // Get control values
+  const meltSpeed = controls.get('meltSpeed') || 0.8;
+  const meltIntensity = (controls.get('meltIntensity') || 55) / 100;
+  const waveHeight = (controls.get('waveHeight') || 180) / 100;
+  const waveWidth = Math.max(1, controls.get('waveWidth') || 15);
+  const distortion = (controls.get('distortion') || 40) / 100;
+  const gasolineIntensity = (controls.get('gasolineIntensity') || 60) / 100;
+  const chromatic = (controls.get('chromatic') || 8);
+  const glowIntensity = (controls.get('glowIntensity') || 45) / 100;
+  const grainIntensity = (controls.get('grainIntensity') || 25) / 100;
+  const vignetteIntensity = (controls.get('vignetteIntensity') || 50) / 100;
+  const textCenterY = (controls.get('posY') || 38) / 100;
+
+  const scrollT = time * meltSpeed * 0.5;
+  const freq = 3.0 / waveWidth;
+
+  // Create output image
+  meltCtx.clearRect(0, 0, w, h);
+  const outData = meltCtx.createImageData(w, h);
+  const out = outData.data;
+
+  // Background
+  const cx = w * 0.5, cy = h * 0.5;
+
+  for (let y = 0; y < h; y += STEP) {
+    const uvy = y / h;
+    const belowText = Math.max(0, (uvy - textCenterY) * 2.5);
+    const meltGrad = Math.min(1, Math.max(0, belowText));
+    const meltGradStrong = Math.pow(meltGrad, 0.6);
+
+    for (let x = 0; x < w; x += STEP) {
+      const uvx = x / w;
+      const aspect = w / h;
+
+      // Noise-based displacement
+      const n1 = fbm(uvx * freq * aspect, uvy * freq * 0.5 + scrollT, 4);
+      const n2 = fbm(uvx * freq * aspect * 1.7 + 50, uvy * freq * 0.3 + 30 + scrollT * 0.7, 3);
+
+      const displaceY = n1 * meltIntensity * 0.4 * meltGradStrong;
+      const displaceX = n2 * distortion * 0.1 * meltGradStrong;
+      const stretchY = meltGradStrong * waveHeight * 0.1;
+
+      // Displaced UV
+      const srcUVx = uvx + displaceX;
+      const srcUVy = uvy + stretchY + displaceY;
+
+      // Chromatic aberration direction
+      const caStr = chromatic * 0.002 * (0.3 + meltGrad * 0.7);
+      const caDx = displaceX;
+      const caDy = displaceY + 0.001;
+      const caLen = Math.sqrt(caDx * caDx + caDy * caDy);
+      const caNx = caLen > 0.0001 ? caDx / caLen : 0;
+      const caNy = caLen > 0.0001 ? caDy / caLen : 1;
+
+      // Sample text at displaced positions (R, G, B channels separately for CA)
+      function sampleText(su, sv) {
+        const sx = Math.round(su * w);
+        const sy = Math.round(sv * h);
+        if (sx < 0 || sx >= w || sy < 0 || sy >= h) return [0, 0, 0, 0];
+        const idx = (sy * w + sx) * 4;
+        return [textPx[idx], textPx[idx+1], textPx[idx+2], textPx[idx+3]];
+      }
+
+      const rSample = sampleText(srcUVx + caNx * caStr, srcUVy + caNy * caStr);
+      const gSample = sampleText(srcUVx, srcUVy);
+      const bSample = sampleText(srcUVx - caNx * caStr, srcUVy - caNy * caStr);
+
+      let r = rSample[0] / 255;
+      let g = gSample[1] / 255;
+      let b = bSample[2] / 255;
+      const a = Math.max(gSample[3], rSample[3], bSample[3]) / 255;
+
+      // Iridescence
+      const dispMag = Math.abs(n1) * meltGradStrong;
+      const shimmer = noise2D(uvx * 8, uvy * 4 - time * 0.15) * 0.5 + 0.5;
+      const iriColor = iridescence(dispMag * 2 + shimmer * 0.5 + time * 0.05);
+      let iriMask = dispMag * gasolineIntensity * 1.5 * a;
+      iriMask *= meltGrad > 0 ? Math.min(1, meltGrad / 0.3) : 0;
+      iriMask = Math.min(iriMask, 0.7);
+
+      r = r * (1 - iriMask) + iriColor[0] * iriMask;
+      g = g * (1 - iriMask) + iriColor[1] * iriMask;
+      b = b * (1 - iriMask) + iriColor[2] * iriMask;
+
+      // Trail fade
+      const trailFade = uvy > 0.75 ? 1 - (uvy - 0.75) / 0.25 : 1;
+      const finalA = a * trailFade;
+
+      // Background
+      const dx = (uvx - 0.5) * 1.2;
+      const dy = (uvy - 0.5);
+      const vignetteDist = Math.sqrt(dx * dx + dy * dy);
+      const vig = 1 - Math.min(1, Math.max(0, (vignetteDist - 0.3) / 0.9));
+      const vigMix = 1 - vignetteIntensity * (1 - vig);
+
+      const bgGrad = 1 - Math.sqrt((uvx - 0.5) * (uvx - 0.5) + (uvy - 0.5) * (uvy - 0.5)) * 0.25;
+      let bgR = 0.035 * bgGrad;
+      let bgG = 0.03 * bgGrad;
+      let bgB = 0.04 * bgGrad;
+
+      // Composite text over background
+      let outR = bgR * (1 - finalA) + r * finalA;
+      let outG = bgG * (1 - finalA) + g * finalA;
+      let outB = bgB * (1 - finalA) + b * finalA;
+
+      // Glow (additive, approximated by brightening near text)
+      if (finalA > 0.01) {
+        outR += finalA * glowIntensity * 0.3 * r;
+        outG += finalA * glowIntensity * 0.3 * g;
+        outB += finalA * glowIntensity * 0.3 * b;
+      }
+
+      // Vignette
+      outR *= vigMix;
+      outG *= vigMix;
+      outB *= vigMix;
+
+      // Grain
+      const grainVal = (hash(x + Math.floor(time * 7.13) * 1000, y + Math.floor(time * 3.71) * 1000) - 0.5) * grainIntensity * 0.15;
+      outR += grainVal;
+      outG += grainVal;
+      outB += grainVal;
+
+      // Dust
+      const dustVal = hash(Math.floor(uvx * 300), Math.floor(uvy * 300) + Math.floor(time * 0.5)) > 0.9985 ? 0.08 : 0;
+      outR += dustVal;
+      outG += dustVal;
+      outB += dustVal;
+
+      // Clamp and write
+      outR = Math.max(0, Math.min(1, outR));
+      outG = Math.max(0, Math.min(1, outG));
+      outB = Math.max(0, Math.min(1, outB));
+
+      // Write to output (fill STEP x STEP block)
+      for (let dy2 = 0; dy2 < STEP && y + dy2 < h; dy2++) {
+        for (let dx2 = 0; dx2 < STEP && x + dx2 < w; dx2++) {
+          const idx = ((y + dy2) * w + (x + dx2)) * 4;
+          out[idx] = outR * 255;
+          out[idx+1] = outG * 255;
+          out[idx+2] = outB * 255;
+          out[idx+3] = 255;
+        }
+      }
+    }
+  }
+
+  meltCtx.putImageData(outData, 0, 0);
+
+  // Draw to main canvas
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(meltCanvas, 0, 0);
+
+  // Bloom pass — draw bright areas with blur
+  if (glowIntensity > 0.01) {
+    const bw = bloomCanvas.width;
+    const bh = bloomCanvas.height;
+    bloomCtx.clearRect(0, 0, bw, bh);
+    bloomCtx.globalAlpha = 1;
+    bloomCtx.drawImage(meltCanvas, 0, 0, bw, bh);
+    bloomCtx.globalCompositeOperation = 'source-atop';
+    bloomCtx.fillStyle = 'rgba(0,0,0,0.6)';
+    bloomCtx.fillRect(0, 0, bw, bh);
+    bloomCtx.globalCompositeOperation = 'source-over';
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = glowIntensity * 0.5;
+    ctx.filter = 'blur(' + Math.round(8 + glowIntensity * 20) + 'px)';
+    ctx.drawImage(bloomCanvas, 0, 0, w, h);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+  }
+
+  requestAnimationFrame(render);
+}
+
+// Load font then start
+document.fonts.load('400 280px "Anton"').then(function() {
+  textNeedsUpdate = true;
+  requestAnimationFrame(render);
+}).catch(function() {
+  textNeedsUpdate = true;
+  requestAnimationFrame(render);
+});
+
+    }
+
+    
+  </script>
+</body>
+</html>
