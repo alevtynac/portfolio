@@ -31,6 +31,7 @@ function ChipList({ label, items, accent = false, delay = 0 }) {
 
 function ProjectVideo({ video }) {
   const ref = React.useRef(null);
+  const [aspectRatio, setAspectRatio] = React.useState(null);
 
   React.useEffect(() => {
     const el = ref.current;
@@ -38,23 +39,35 @@ function ProjectVideo({ video }) {
 
     el.muted = true;
 
+    const syncRatio = () => {
+      if (el.videoWidth > 0 && el.videoHeight > 0) {
+        setAspectRatio(`${el.videoWidth} / ${el.videoHeight}`);
+      }
+    };
+
     const tryPlay = () => {
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
     };
 
-    if (el.readyState >= 2) tryPlay();
+    syncRatio();
+    el.addEventListener("loadedmetadata", syncRatio);
     el.addEventListener("loadeddata", tryPlay, { once: true });
     el.addEventListener("canplay", tryPlay, { once: true });
+    if (el.readyState >= 2) tryPlay();
 
     return () => {
+      el.removeEventListener("loadedmetadata", syncRatio);
       el.removeEventListener("loadeddata", tryPlay);
       el.removeEventListener("canplay", tryPlay);
     };
   }, [video.src]);
 
   return (
-    <div className="project-video-frame">
+    <div
+      className="project-video-frame"
+      style={aspectRatio ? { aspectRatio, minHeight: 0 } : undefined}
+    >
       <video
         ref={ref}
         src={video.src}

@@ -63,8 +63,7 @@ window.portfolioData = {
     videoText: "",
     video: {
       type: "local",
-      src: "src/assets/videos/ilovehaifa.mp4",
-      hoverSrc: "src/assets/videos/love-haifa-hover-final.mp4",
+      src: "src/assets/videos/love-haifa-hover-final.mp4",
       poster: "src/assets/images/ilovehaifa-poster.jpg"
     }
   },
