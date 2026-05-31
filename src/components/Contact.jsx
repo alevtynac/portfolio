@@ -11,6 +11,7 @@ function externalUrl(url) {
 function Contact({ data }) {
   const { contact, personal } = data;
   const ctaLabel = contact.ctaLabel || "Get in touch";
+  const instagramHref = personal.instagram ? externalUrl(personal.instagram) : "";
 
   const links = [
     personal.email && {
@@ -43,12 +44,17 @@ function Contact({ data }) {
             ))}
           </Reveal>
           <Reveal as="p" className="contact__text process__text" delay={80}>{contact.text}</Reveal>
-          {personal.email && (
-            <Reveal delay={140}>
-              <a className="btn btn--solid contact__cta" href={`mailto:${personal.email}`}>
-                <span>{ctaLabel}</span>
-                <span className="contact__cta-arrow" aria-hidden="true">→</span>
-              </a>
+          {instagramHref && (
+            <Reveal
+              as="a"
+              className="btn btn--solid contact__cta"
+              href={instagramHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              delay={140}
+            >
+              <span>{ctaLabel}</span>
+              <span className="contact__cta-arrow" aria-hidden="true">→</span>
             </Reveal>
           )}
         </div>

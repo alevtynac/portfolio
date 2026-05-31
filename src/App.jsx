@@ -13,6 +13,7 @@ function App() {
 
   return (
     <React.Fragment>
+      <SprayCursor />
       <Header data={data} />
       <main>
         <Hero data={data} />

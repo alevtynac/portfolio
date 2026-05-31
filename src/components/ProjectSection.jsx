@@ -69,26 +69,48 @@ function ProjectVideo({ video }) {
   );
 }
 
+function ProjectMediaItem({ item, title }) {
+  const isVideo = item.type === "video" || /\.mp4(\?|$)/i.test(item.src || "");
+
+  if (isVideo) {
+    return <ProjectVideo video={{ src: item.src }} />;
+  }
+
+  return (
+    <figure className="video-frame" style={{ aspectRatio: "4 / 5" }}>
+      <img
+        className="video-frame__media"
+        src={item.src}
+        alt={item.alt || title}
+      />
+    </figure>
+  );
+}
+
 function ProjectMedia({ project }) {
   const media = project.media || {};
   const title = project.title;
   const video = media.video;
-  const image = media.images?.[0];
+  const images = media.images || [];
 
   if (video?.src) {
     return <ProjectVideo video={video} />;
   }
 
-  if (image?.src) {
+  if (images.length > 1) {
     return (
-      <figure className="video-frame" style={{ aspectRatio: "4 / 5" }}>
-        <img
-          className="video-frame__media"
-          src={image.src}
-          alt={image.alt || title}
-        />
-      </figure>
+      <div className="project-media-gallery">
+        {images.map((item, index) => (
+          <ProjectMediaItem key={item.src || index} item={item} title={title} />
+        ))}
+      </div>
     );
+  }
+
+  const image = images[0];
+
+  if (image?.src) {
+    return <ProjectMediaItem item={image} title={title} />;
   }
 
   return <VideoFrame label="project media" ratio="4 / 5" controls={false} />;

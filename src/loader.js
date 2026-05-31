@@ -13,6 +13,7 @@
     "src/components/ToolsSection.jsx",
     "src/components/Contact.jsx",
     "src/components/Footer.jsx",
+    "src/components/SprayCursor.jsx",
     "src/App.jsx"
   ];
 

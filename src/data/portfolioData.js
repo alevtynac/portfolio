@@ -55,6 +55,7 @@ window.portfolioData = {
   /* ---- Hero -------------------------------------------------------- */
   hero: {
     title: "I Love Haifa",
+    type: "PUBLIC-SCREEN VIDEO / SEA MOVEMENT / ABSTRACT VISUAL SYSTEM",
     label: "Featured in public space",
     subtitle: "A public-screen video project shown in Haifa.",
     secondaryTitle: "",
@@ -63,6 +64,7 @@ window.portfolioData = {
     video: {
       type: "local",
       src: "src/assets/videos/ilovehaifa.mp4",
+      hoverSrc: "src/assets/videos/love-haifa-hover-final.mp4",
       poster: "src/assets/images/ilovehaifa-poster.jpg"
     }
   },
@@ -81,10 +83,10 @@ window.portfolioData = {
     label: "About",
     title: "About Me",
     paragraphs: [
-      "I'm Alevtyna Coacher, a visual communication student at the WIZO School of Design, University of Haifa.",
-      "I work with typography, video, motion and interaction. I build a clear idea first, then grow it into a system with rules and variation.",
-      "My projects start from a question and use visual language to explore perception, emotion and digital behavior.",
-      "Here I want to show not only finished work, but how I think, test and build."
+      "I'm Alevtyna Coacher, a 3rd-year visual communication student at the WIZO School of Design, University of Haifa.",
+      "I work with typography, video, motion and interactive systems. My projects often start from a personal or emotional question, then become visual structures built through rhythm, repetition and movement.",
+      "I'm interested in how digital design can translate perception, memory and inner states into visual experiences.",
+      "This portfolio shows not only finished works, but also how I think, test, combine tools and build visual systems."
     ]
   },
 
@@ -175,12 +177,15 @@ window.portfolioData = {
       externalLink: "https://alevtynac.wixstudio.com/my-site",
       externalLinkLabel: "TO THE GAME",
       media: {
-        images: [
-          {
-            src: "src/assets/images/intuition-mirage.png",
-            alt: "Intuition Mirage collage interface"
-          }
-        ]
+        video: {
+          type: "local",
+          src: "src/assets/videos/intuition-mirage-03-video.mp4",
+          autoplay: true,
+          muted: true,
+          loop: true,
+          controls: false,
+          playsInline: true
+        }
       }
     }
   ],
